@@ -1,10 +1,11 @@
 import os
 import json
 import streamlit as st
+import platform
 from permission_rater import rate_permissions
 from report_generator import export_pdf_report, detect_red_flags
 
-# ✅ Optional: mitigation advice
+# ✅ Mitigation guidance
 permission_mitigation = {
     "<all_urls>": "Avoid extensions with full web access unless highly trusted.",
     "webRequest": "Only use extensions with this permission if necessary for security tools.",
@@ -55,63 +56,94 @@ def list_extensions(profile_path):
                 pass
     return extensions
 
-# 🔁 Streamlit Session State
+# 🔁 Session state
 if "extensions" not in st.session_state:
     st.session_state.extensions = []
 
-# 🖥️ UI
 st.set_page_config(page_title="Browser Extension Security Analyzer", layout="centered")
 
 st.title("🛡️ Browser Extension Security Analyzer")
 st.write("Analyze Chrome extensions, check permissions, risk scores, and mitigation advice.")
 
-chrome_path = st.text_input("📂 Enter Chrome User Data Path", value=r"C:\Users\YourName\AppData\Local\Google\Chrome\User Data")
+IS_CLOUD = platform.system() != "Windows"
 
-if chrome_path and os.path.exists(chrome_path):
-    profiles = find_profiles(chrome_path)
-    if profiles:
-        selected_profile = st.selectbox("👤 Choose Chrome Profile", profiles)
+if IS_CLOUD:
+    st.warning("🚫 This cloud version cannot scan your Chrome. Showing demo data only.")
 
-        if st.button("🔍 Scan Extensions"):
-            full_profile_path = os.path.join(chrome_path, selected_profile)
-            st.session_state.extensions = list_extensions(full_profile_path)
+    # 🔧 Demo extensions for Streamlit Cloud
+    st.session_state.extensions = [
+        {
+            "name": "MSG_extName",
+            "id": "ghbmnnjooekpmoecnnnilnnbdlolhkhi",
+            "version": "1.85.1",
+            "permissions": ["storage", "alarms", "unlimitedStorage"],
+            "host_permissions": ["https://docs.google.com/*", "https://drive.google.com/*"]
+        },
+        {
+            "name": "MSG_APP_NAME",
+            "id": "nmmhkkegccagdldgiimedpiccmgmieda",
+            "version": "1.0.0.6",
+            "permissions": ["identity", "webview"],
+            "host_permissions": [
+                "https://www.google.com/",
+                "https://www.googleapis.com/*",
+                "https://payments.google.com/payments/v4/js/integrator.js"
+            ]
+        }
+    ]
 
-        if st.session_state.extensions:
-            for ext in st.session_state.extensions:
-                st.subheader(f"🧩 {ext['name']} (v{ext['version']})")
-                st.caption(f"Extension ID: `{ext['id']}`")
+else:
+    chrome_path = st.text_input("📂 Enter Chrome User Data Path", value=r"C:\Users\YourName\AppData\Local\Google\Chrome\User Data")
 
-                combined = ext['permissions'] + ext.get("host_permissions", [])
-                risks = rate_permissions(combined)
-                red_flags = detect_red_flags(combined)
+    if chrome_path and os.path.exists(chrome_path):
+        profiles = find_profiles(chrome_path)
+        if profiles:
+            selected_profile = st.selectbox("👤 Choose Chrome Profile", profiles)
 
-                score = (len(risks["High"]) * 5) + (len(risks["Medium"]) * 3) + (len(risks["Low"]) * 1) + (len(risks["Unknown"]) * 2)
-                st.markdown(f"📊 **Risk Score:** `{score}`")
+            if st.button("🔍 Scan Extensions"):
+                full_profile_path = os.path.join(chrome_path, selected_profile)
+                st.session_state.extensions = list_extensions(full_profile_path)
+        else:
+            st.error("❌ No Chrome profiles found.")
 
-                for level in ["High", "Medium", "Low", "Unknown"]:
-                    if risks[level]:
-                        st.markdown(f"**{level} Risk Permissions:** `{', '.join(risks[level])}`")
+# 🔎 Analyze Extensions
+if st.session_state.extensions:
+    for ext in st.session_state.extensions:
+        st.subheader(f"🧩 {ext['name']} (v{ext['version']})")
+        st.caption(f"Extension ID: `{ext['id']}`")
 
-                if red_flags:
-                    st.error(f"⚠️ Privacy Red Flags: {', '.join(red_flags)}")
+        combined = ext['permissions'] + ext.get("host_permissions", [])
+        risks = rate_permissions(combined)
+        red_flags = detect_red_flags(combined)
 
-                # ✅ Mitigation section
-                mitigation_displayed = False
-                for perm in combined:
-                    if perm in permission_mitigation:
-                        if not mitigation_displayed:
-                            st.markdown("### 🛡️ How to Overcome the Risks:")
-                            mitigation_displayed = True
-                        st.markdown(f"• **{perm}** → _{permission_mitigation[perm]}_")
+        score = (len(risks["High"]) * 5) + (len(risks["Medium"]) * 3) + (len(risks["Low"]) * 1) + (len(risks["Unknown"]) * 2)
+        st.markdown(f"📊 **Risk Score:** `{score}`")
 
-                # ✅ Also show mitigation for red flags
-                for flag in red_flags:
-                    if flag in permission_mitigation:
-                        st.markdown(f"🛡️ **Mitigation for `{flag}`:** _{permission_mitigation[flag]}_")
+        for level in ["High", "Medium", "Low", "Unknown"]:
+            if risks[level]:
+                st.markdown(f"**{level} Risk Permissions:** `{', '.join(risks[level])}`")
 
-    # ✅ PDF report button (outside extension loop)
+        if red_flags:
+            st.error(f"⚠️ Privacy Red Flags: {', '.join(red_flags)}")
+
+        # 🛡️ Mitigation Advice
+        mitigation_displayed = False
+        for perm in combined:
+            if perm in permission_mitigation:
+                if not mitigation_displayed:
+                    st.markdown("### 🛡️ How to Overcome the Risks:")
+                    mitigation_displayed = True
+                st.markdown(f"• **{perm}** → _{permission_mitigation[perm]}_")
+
+        for flag in red_flags:
+            if flag in permission_mitigation:
+                st.markdown(f"🛡️ **Mitigation:** _{permission_mitigation[flag]}_")
+
+# 📄 Export PDF
+if st.session_state.extensions:
     if st.button("📄 Generate PDF Report"):
         output_path = os.path.join("sample_output", "report.pdf")
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
         export_pdf_report(st.session_state.extensions, filename=output_path)
 
         if os.path.exists(output_path):
