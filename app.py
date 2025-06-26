@@ -1,11 +1,14 @@
 import os
 import json
-import streamlit as st
 import platform
+import streamlit as st
 from permission_rater import rate_permissions
 from report_generator import export_pdf_report, detect_red_flags
 
-# ✅ Mitigation guidance
+# ✅ Determine if running on Streamlit Cloud
+IS_CLOUD = platform.system() != "Windows"
+
+# ✅ Optional: mitigation advice
 permission_mitigation = {
     "<all_urls>": "Avoid extensions with full web access unless highly trusted.",
     "webRequest": "Only use extensions with this permission if necessary for security tools.",
@@ -24,6 +27,7 @@ permission_mitigation = {
     "https://payments.google.com/*": "Ensure financial data is accessed only by secure extensions."
 }
 
+# ✅ Real Chrome profile support (for local use)
 def find_profiles(chrome_user_data_path):
     profiles = []
     for name in os.listdir(chrome_user_data_path):
@@ -35,7 +39,6 @@ def find_profiles(chrome_user_data_path):
 def list_extensions(profile_path):
     extensions_dir = os.path.join(profile_path, 'Extensions')
     extensions = []
-
     for ext_id in os.listdir(extensions_dir):
         ext_path = os.path.join(extensions_dir, ext_id)
         versions = os.listdir(ext_path)
@@ -56,21 +59,18 @@ def list_extensions(profile_path):
                 pass
     return extensions
 
-# 🔁 Session state
-if "extensions" not in st.session_state:
-    st.session_state.extensions = []
-
+# ✅ Streamlit App
 st.set_page_config(page_title="Browser Extension Security Analyzer", layout="centered")
-
 st.title("🛡️ Browser Extension Security Analyzer")
 st.write("Analyze Chrome extensions, check permissions, risk scores, and mitigation advice.")
 
-IS_CLOUD = platform.system() != "Windows"
+# 🔁 Streamlit session state
+if "extensions" not in st.session_state:
+    st.session_state.extensions = []
 
+# 🚫 Demo mode for Streamlit Cloud
 if IS_CLOUD:
     st.warning("🚫 This cloud version cannot scan your Chrome. Showing demo data only.")
-
-    # 🔧 Demo extensions for Streamlit Cloud
     st.session_state.extensions = [
         {
             "name": "MSG_extName",
@@ -91,10 +91,8 @@ if IS_CLOUD:
             ]
         }
     ]
-
 else:
     chrome_path = st.text_input("📂 Enter Chrome User Data Path", value=r"C:\Users\YourName\AppData\Local\Google\Chrome\User Data")
-
     if chrome_path and os.path.exists(chrome_path):
         profiles = find_profiles(chrome_path)
         if profiles:
@@ -103,10 +101,8 @@ else:
             if st.button("🔍 Scan Extensions"):
                 full_profile_path = os.path.join(chrome_path, selected_profile)
                 st.session_state.extensions = list_extensions(full_profile_path)
-        else:
-            st.error("❌ No Chrome profiles found.")
 
-# 🔎 Analyze Extensions
+# ✅ Show Extension Results
 if st.session_state.extensions:
     for ext in st.session_state.extensions:
         st.subheader(f"🧩 {ext['name']} (v{ext['version']})")
@@ -126,7 +122,7 @@ if st.session_state.extensions:
         if red_flags:
             st.error(f"⚠️ Privacy Red Flags: {', '.join(red_flags)}")
 
-        # 🛡️ Mitigation Advice
+        # ✅ Mitigation Advice
         mitigation_displayed = False
         for perm in combined:
             if perm in permission_mitigation:
@@ -135,24 +131,18 @@ if st.session_state.extensions:
                     mitigation_displayed = True
                 st.markdown(f"• **{perm}** → _{permission_mitigation[perm]}_")
 
-        for flag in red_flags:
-            if flag in permission_mitigation:
-                st.markdown(f"🛡️ **Mitigation:** _{permission_mitigation[flag]}_")
+# ✅ Generate PDF Report
+if st.session_state.extensions and st.button("📄 Generate PDF Report"):
+    output_path = os.path.join("sample_output", "report.pdf")
+    export_pdf_report(st.session_state.extensions, filename=output_path)
 
-# 📄 Export PDF
-if st.session_state.extensions:
-    if st.button("📄 Generate PDF Report"):
-        output_path = os.path.join("sample_output", "report.pdf")
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        export_pdf_report(st.session_state.extensions, filename=output_path)
-
-        if os.path.exists(output_path):
-            with open(output_path, "rb") as f:
-                st.download_button(
-                    label="⬇️ Download PDF Report",
-                    data=f,
-                    file_name="browser_extension_report.pdf",
-                    mime="application/pdf"
-                )
-        else:
-            st.error("❌ Failed to generate PDF.")
+    if os.path.exists(output_path):
+        with open(output_path, "rb") as f:
+            st.download_button(
+                label="⬇️ Download PDF Report",
+                data=f,
+                file_name="browser_extension_report.pdf",
+                mime="application/pdf"
+            )
+    else:
+        st.error("❌ Failed to generate PDF.")
